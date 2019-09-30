@@ -3,11 +3,11 @@ return [
     'components' => [
 		'db' => [
 			'class' => 'yii\db\Connection',
-			'dsn' => 'mysql:host=127.0.0.1;dbname=xstnet',
-			'username' => 'xstnet_blog',
-			'password' => 'asd#%3GNldjgeHFVv(*&',
+			'dsn' => 'mysql:host=127.0.0.1;dbname=manager-home',
+			'username' => 'root',
+			'password' => '33333',
 			'charset' => 'utf8',
-			'tablePrefix' => 'x_',
+			'tablePrefix' => 'mh_',
 			
 			'enableSchemaCache' => true,
 			
@@ -37,26 +37,25 @@ return [
 			],
 			'messageConfig'=>[
 				'charset'=>'UTF-8',
-				'from'=>['notifications@xstnet.com	' => '徐善通博客']
+				'from'=>['notifications@xstnet.com	' => '居家管理']
 			],
 		],
 		
-//		'cache' => [
-//			'class' => 'yii\caching\FileCache',
-//			'cachePath' => '@backend/runtime/cache',
-//		],
 		'cache' => [
-			'class' => 'common\helpers\RedisCache',
+			'class' => 'yii\caching\FileCache',
 		],
+//		'cache' => [
+//			'class' => 'common\helpers\RedisCache',
+//		],
 		'userCache' => [
 			'class' => 'common\helpers\UserCache',
 		],
-		'redis' => [
-			'class' => 'yii\redis\Connection',
-			'hostname' => '127.0.0.1',
-			'port' => 6379,
-			'database' => 1,
-//			'password' => ''
-		],
+//		'redis' => [
+//			'class' => 'yii\redis\Connection',
+//			'hostname' => '127.0.0.1',
+//			'port' => 6379,
+//			'database' => 1,
+////			'password' => ''
+//		],
     ],
 ];
