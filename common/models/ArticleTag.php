@@ -8,19 +8,13 @@ use Yii;
  * This is the model class for table "{{%article_tag}}".
  *
  * @property int $id
- * @property string $name
- * @property int $article_count
- * @property int $is_show
+ * @property int $article_id
+ * @property int $tag_id
  * @property int $created_at 创建时间
  * @property int $updated_at 更新时间
  */
-class ArticleTag extends BaseModel
+class ArticleTag extends \common\models\BaseModel
 {
-	/**
-	 * 是否展示
-	 */
-	const IS_SHOW_YES = 1;
-	const IS_SHOW_NO = 0;
     /**
      * {@inheritdoc}
      */
@@ -35,10 +29,7 @@ class ArticleTag extends BaseModel
     public function rules()
     {
         return [
-            [['name'], 'required'],
-            [['article_count', 'is_show', 'created_at', 'updated_at'], 'integer'],
-            [['name'], 'string', 'max' => 20],
-            [['name'], 'unique'],
+            [['article_id', 'tag_id', 'created_at', 'updated_at'], 'integer'],
         ];
     }
 
@@ -49,22 +40,10 @@ class ArticleTag extends BaseModel
     {
         return [
             'id' => 'ID',
-            'name' => 'Name',
-            'article_count' => 'Article Count',
-            'created_at' => 'Created At',
-            'updated_at' => 'Updated At',
+            'article_id' => 'Article ID',
+            'tag_id' => 'Tag ID',
+            'created_at' => '创建时间',
+            'updated_at' => '更新时间',
         ];
     }
-	
-	public function scenarios()
-	{
-		return array_merge(
-			parent::scenarios(),
-			[
-				'change-is_show' => [
-					'is_show',
-				],
-			]
-		);
-	}
 }

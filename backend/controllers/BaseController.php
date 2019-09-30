@@ -1,127 +1,138 @@
 <?php
-/**
- * Desc:
- * Created by PhpStorm.
- * User: shantong
- * Date: 2018/9/10
- * Time: 18:26
- */
-
 namespace backend\controllers;
 
-
-use common\exceptions\BaseException;
-use yii\filters\RateLimiter;
-use yii\web\Controller;
+use common\models\Article;
 use Yii;
-use yii\web\Response;
+use yii\web\Controller;
+use yii\data\Pagination;
 
+/**
+ * Site controller
+ */
 class BaseController extends Controller
 {
-	public static $userInfo;
-
-	const AJAX_STATUS_FAILED = 1;
-
-	const AJAX_STATUS_SUCCESS = 0;
-
-	const AJAX_MESSAGE_FAILED = '请求失败';
-
-	const AJAX_MESSAGE_SUCCESS = 'ok';
-
-	const AJAX_MESSAGE_NO_PERMISSION = '你没有权限操作';
-
-	const DEFAULT_AJAX_DATA = null;
-
-	public $layout = false;
-
-	public function behaviors()
+	public function init()
 	{
+		parent::init();
+		// 改为js异步统计
+//		try {
+//			$this->dayCount();
+//		} catch (\Exception $e) {
+//
+//		}
+	}
+	
+	/**
+	 *
+	 * @param \yii\db\ActiveQuery $query
+	 * @param int $pageSize
+	 * @return array
+	 */
+	public function getPage($query, $pageSize = 10)
+	{
+		$page = (int) Yii::$app->request->get('page', 1);
+		$page = $page < 1 ? 1 : $page;
+		$count = $query->count();
+		
+		$offset = ($page - 1) * $pageSize;
+		
+		$query->offset($offset)->limit($pageSize);
+		
+		$pages = new Pagination(['totalCount' => $count, 'pageSize' => $pageSize, 'defaultPageSize' => $pageSize]);
+		
+		return [$count, $pages];
+	}
+	
+	/**
+	 * 二次处理返回的Html
+	 * @param string $content
+	 * @return string
+	 */
+	public function renderContentFilter($content)
+	{
+		return ltrim(rtrim(preg_replace(array("/> *([^ ]*) *</","//","'/\*[^*]*\*/'","/\r\n/","/\n/","/\t/",'/>[ ]+</'),array(">\\1<",'','','','','','><'), $content)));
+	}
+	
+	/**
+	 * 获取文章列表
+	 * @param $where
+	 * @return array
+	 */
+	protected function getArticleList($where = []) : array
+	{
+		$query = Article::find()
+			->where(['is_show' => Article::IS_SHOW_YES, 'is_delete' => Article::IS_DELETE_NO])
+			->andWhere($where);
+		list ($count, $pages) = $this->getPage($query);
+		$articleList = $query->orderBy(['created_at' => SORT_DESC])
+			->asArray()
+			->all();
+		
 		return [
-			/**
-			 * 调用速率限制
-			 */
-			'rateLimiter' => [
-				'class' => RateLimiter::className(),
-				'except' => [
-					'error',
-				],
-			],
+			'articleList' => $articleList,
+			'pages' => $pages,
+			'count' => $count,
 		];
 	}
-
-	public static function ajaxReturn($msg = self::AJAX_MESSAGE_FAILED, $status = self::AJAX_STATUS_FAILED, $data = self::DEFAULT_AJAX_DATA)
+	
+	/**
+	 * 统计
+	 */
+	public function dayCount()
 	{
-		//如果提示信息为成功，且未传递成功标识，置之为成功
-		if ($msg == self::AJAX_MESSAGE_SUCCESS && $status == self::AJAX_STATUS_FAILED) {
-			$status = self::AJAX_STATUS_SUCCESS;
+		// 不统计搜索引擎的访问
+		foreach (Yii::$app->params['spider_user_agent'] as $item) {
+			if (stripos(Yii::$app->request->userAgent, $item) !==false ) {
+				return true;
+			}
 		}
-		$result = [
-			'code' => $status,
-			'message'    => $msg,
-			'data'   => $data,
+		/**
+		 * @var $redis \yii\redis\Connection
+		 */
+		$userIp = (string) Yii::$app->request->userIP;
+		$whiteList = [
+			'127.0.0.1',
+			'101.245.112.48',
+			'106.14.176.24',
 		];
-		Yii::$app->response->format = Response::FORMAT_JSON;
-		Yii::$app->response->statusCode = 200;
-
-		return $result;
-	}
-
-	public static function ajaxSuccess($msg = self::AJAX_MESSAGE_SUCCESS, $data = [], $code = self::AJAX_STATUS_SUCCESS)
-	{
-		return self::ajaxReturn($msg, $code, $data);
-	}
-
-	public static function formatHtml()
-	{
-		Yii::$app->response->format = Response::FORMAT_HTML;
-		Yii::$app->response->statusCode = 200;
-	}
-
-	/**
-	 * @Desc:
-	 * @param string $id
-	 * @param array $params
-	 * @return mixed
-	 * @throws BaseException
-	 */
-	public function runAction($id, $params = [])
-	{
-		try {
-			return parent::runAction($id, $params); // 捕获所有action方法异常，格式化返回
-		} catch (\Exception $e) {
-			Yii::error($e->getMessage());
-			Yii::error($e->getTraceAsString());
-			throw new BaseException(10001, $e->getMessage());
+		if (in_array($userIp, $whiteList)) {
+			return true;
 		}
+		
+		$redis = Yii::$app->redis;
+
+		$redis->select(Yii::$app->params['redis_database']['keep_cache']);
+		
+		$today = date('Y-m-d');
+		
+		$countDayKey = $today . '_day_count';
+		$countIpKey = $today . '_ip_count';
+		$countTotalKey = $today . '_total_count';
+		
+		$redis->incr($countDayKey);
+		$redis->incr($countTotalKey);
+		$redis->hset($countIpKey, $userIp, date('Y-m-d H:i:s'));
+		
+		$redis->select(Yii::$app->params['redis_database']['default']);
 	}
-
-	/**
-	 * @Desc: 获取Get参数
-	 * @param string $key
-	 * @param string $defaultValue
-	 * @return array|mixed
-	 */
-	public static function getParams($key = '', $defaultValue = '')
+	
+	public function getAllCategoryBreadcrumb($categoryId) : array
 	{
-		if (empty($key)) {
-			return Yii::$app->request->get();
+		$userCache = Yii::$app->userCache;
+		$categoryList = $userCache->get('articleCategory');
+		$parents = $categoryList[$categoryId]['parents'];
+		$categoryItems = array_reverse(explode(',', $parents));
+		$breadcrumb = [];
+		foreach ($categoryItems as $categoryId) {
+			$categoryName = $categoryList[$categoryId]['category_name'] ?? '';
+			if (empty($categoryList)) {
+				continue;
+			}
+			$breadcrumb[] = [
+				'name' => $categoryName,
+				'href' => "/category-{$categoryId}.html",
+			];
 		}
-
-		return Yii::$app->request->get($key, $defaultValue);
-	}
-
-	/**
-	 * @Desc: 获取post参数
-	 * @param string $key
-	 * @param string $defaultValue
-	 * @return array|mixed
-	 */
-	public static function postParams($key = '', $defaultValue = '')
-	{
-		if (empty($key)) {
-			return Yii::$app->request->post();
-		}
-
-		return Yii::$app->request->post($key, $defaultValue);
+		return $breadcrumb;
 	}
 }

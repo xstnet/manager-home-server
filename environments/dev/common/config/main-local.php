@@ -3,11 +3,11 @@ return [
     'components' => [
 		'db' => [
 			'class' => 'yii\db\Connection',
-			'dsn' => 'mysql:host=127.0.0.1;dbname=yii-admin',
+			'dsn' => 'mysql:host=127.0.0.1;dbname=manager-home',
 			'username' => 'root',
 			'password' => 'root',
 			'charset' => 'utf8',
-			'tablePrefix' => 'x_',
+			'tablePrefix' => 'mh_',
 		],
 		'mailer' => [
 			'class' => 'yii\swiftmailer\Mailer',
@@ -33,22 +33,22 @@ return [
 			],
 		],
 		
-		//		'cache' => [
-		//			'class' => 'yii\caching\FileCache',
-		//			'cachePath' => '@backend/runtime/cache',
-		//		],
-		'cache' => [
-			'class' => 'common\helpers\RedisCache',
-		],
+        'cache' => [
+            'class' => 'yii\caching\FileCache',
+            'cachePath' => '@backend/runtime/cache',
+        ],
+//		'cache' => [
+//			'class' => 'common\helpers\RedisCache',
+//		],
 		'userCache' => [
 			'class' => 'common\helpers\UserCache',
 		],
-		'redis' => [
-			'class' => 'yii\redis\Connection',
-			'hostname' => '127.0.0.1',
-			'port' => 6379,
-			'database' => 1,
-			'password' => '123456789'
-		],
+//		'redis' => [
+//			'class' => 'yii\redis\Connection',
+//			'hostname' => '127.0.0.1',
+//			'port' => 6379,
+//			'database' => 1,
+//			'password' => '123456789'
+//		],
     ],
 ];

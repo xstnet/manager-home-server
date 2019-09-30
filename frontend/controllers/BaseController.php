@@ -1,138 +1,152 @@
 <?php
+/**
+ * Desc:
+ * Created by PhpStorm.
+ * User: shantong
+ * Date: 2018/9/10
+ * Time: 18:26
+ */
+
 namespace frontend\controllers;
 
-use common\models\Article;
-use Yii;
-use yii\web\Controller;
-use yii\data\Pagination;
 
-/**
- * Site controller
- */
+use common\exceptions\BaseException;
+use common\utils\TokenValidator;
+use yii\filters\Cors;
+use yii\web\Controller;
+use Yii;
+use yii\web\Response;
+
 class BaseController extends Controller
 {
-	public function init()
-	{
-		parent::init();
-		// 改为js异步统计
-//		try {
-//			$this->dayCount();
-//		} catch (\Exception $e) {
-//
-//		}
-	}
-	
-	/**
-	 *
-	 * @param \yii\db\ActiveQuery $query
-	 * @param int $pageSize
-	 * @return array
-	 */
-	public function getPage($query, $pageSize = 10)
-	{
-		$page = (int) Yii::$app->request->get('page', 1);
-		$page = $page < 1 ? 1 : $page;
-		$count = $query->count();
-		
-		$offset = ($page - 1) * $pageSize;
-		
-		$query->offset($offset)->limit($pageSize);
-		
-		$pages = new Pagination(['totalCount' => $count, 'pageSize' => $pageSize, 'defaultPageSize' => $pageSize]);
-		
-		return [$count, $pages];
-	}
-	
-	/**
-	 * 二次处理返回的Html
-	 * @param string $content
-	 * @return string
-	 */
-	public function renderContentFilter($content)
-	{
-		return ltrim(rtrim(preg_replace(array("/> *([^ ]*) *</","//","'/\*[^*]*\*/'","/\r\n/","/\n/","/\t/",'/>[ ]+</'),array(">\\1<",'','','','','','><'), $content)));
-	}
-	
-	/**
-	 * 获取文章列表
-	 * @param $where
-	 * @return array
-	 */
-	protected function getArticleList($where = []) : array
-	{
-		$query = Article::find()
-			->where(['is_show' => Article::IS_SHOW_YES, 'is_delete' => Article::IS_DELETE_NO])
-			->andWhere($where);
-		list ($count, $pages) = $this->getPage($query);
-		$articleList = $query->orderBy(['created_at' => SORT_DESC])
-			->asArray()
-			->all();
-		
-		return [
-			'articleList' => $articleList,
-			'pages' => $pages,
-			'count' => $count,
-		];
-	}
-	
-	/**
-	 * 统计
-	 */
-	public function dayCount()
-	{
-		// 不统计搜索引擎的访问
-		foreach (Yii::$app->params['spider_user_agent'] as $item) {
-			if (stripos(Yii::$app->request->userAgent, $item) !==false ) {
-				return true;
-			}
-		}
-		/**
-		 * @var $redis \yii\redis\Connection
-		 */
-		$userIp = (string) Yii::$app->request->userIP;
-		$whiteList = [
-			'127.0.0.1',
-			'101.245.112.48',
-			'106.14.176.24',
-		];
-		if (in_array($userIp, $whiteList)) {
-			return true;
-		}
-		
-		$redis = Yii::$app->redis;
+	public static $userInfo;
 
-		$redis->select(Yii::$app->params['redis_database']['keep_cache']);
-		
-		$today = date('Y-m-d');
-		
-		$countDayKey = $today . '_day_count';
-		$countIpKey = $today . '_ip_count';
-		$countTotalKey = $today . '_total_count';
-		
-		$redis->incr($countDayKey);
-		$redis->incr($countTotalKey);
-		$redis->hset($countIpKey, $userIp, date('Y-m-d H:i:s'));
-		
-		$redis->select(Yii::$app->params['redis_database']['default']);
-	}
-	
-	public function getAllCategoryBreadcrumb($categoryId) : array
+	const CODE_SUCCESS = 0;
+	const CODE_FAILED = 1;
+
+	const MESSAGE_SUCCESS = 'ok';
+	const MESSAGE_FAILED = '系统错误';
+
+	public $layout = false;
+
+	public $enableCsrfValidation = false;
+
+	public function behaviors()
 	{
-		$userCache = Yii::$app->userCache;
-		$categoryList = $userCache->get('articleCategory');
-		$parents = $categoryList[$categoryId]['parents'];
-		$categoryItems = array_reverse(explode(',', $parents));
-		$breadcrumb = [];
-		foreach ($categoryItems as $categoryId) {
-			$categoryName = $categoryList[$categoryId]['category_name'] ?? '';
-			if (empty($categoryList)) {
-				continue;
-			}
-			$breadcrumb[] = [
-				'name' => $categoryName,
-				'href' => "/category-{$categoryId}.html",
-			];
+        return array_merge(
+            parent::behaviors(),
+            [
+                /**
+                 * 验证Token
+                 */
+                'tokenValidator' => [
+                    'class' => TokenValidator::className(),
+                    'optional' => [
+                        'login',
+                        'register',
+                        'test',
+                    ],
+                    'except' => [
+                        'error',
+                    ],
+                ],
+                [
+                    'class' => Cors::className(),
+                ]
+            ]
+        );
+	}
+
+	public static function returnJson($code = self::CODE_SUCCESS, $message = self::MESSAGE_SUCCESS, $data = [])
+    {
+        // 当code 值为数组时， 当做本次成功，直接当做返回数据
+        if (is_array($code)) {
+            $data = $code;
+            $code = self::CODE_SUCCESS;
+            $message = self::MESSAGE_SUCCESS;
+        }
+        // 当code传值为字符串时， message取code， data取message
+        if (is_string($code)) {
+            $data = $message;
+            $message = $code;
+            $code = self::CODE_SUCCESS;
+        }
+        // data的值不能为字符串
+        if (!is_array($data)) {
+            $data = [];
+        }
+        // 处理code不为0的情况
+        if ($code > 0) {
+            if ($message === '') {
+                $message = self::MESSAGE_FAILED;
+            }
+        }
+        if ($code === null) {
+            $code = self::CODE_SUCCESS;
+        }
+        $result = [
+            'code' => $code,
+            'message' => $message,
+            'data' => $data,
+        ];
+        Yii::$app->response->format = Response::FORMAT_JSON;
+        Yii::$app->response->statusCode = 200;
+
+        return $result;
+    }
+
+	public static function formatHtml()
+	{
+		Yii::$app->response->format = Response::FORMAT_HTML;
+		Yii::$app->response->statusCode = 200;
+	}
+
+	/**
+	 * @Desc:
+	 * @param string $id
+	 * @param array $params
+	 * @return mixed
+	 * @throws BaseException
+	 */
+	public function runAction($id, $params = [])
+	{
+		try {
+			return parent::runAction($id, $params); // 捕获所有action方法异常，格式化返回
+		} catch (\Exception $e) {
+			Yii::error($e->getMessage());
+			Yii::error($e->getTraceAsString());
+			$message = $e->getMessage();
+			throw new BaseException(10001, $message);
 		}
-		return $breadcrumb;
+	}
+
+	/**
+	 * @Desc: 获取Get参数
+	 * @param string $key
+	 * @param string $defaultValue
+	 * @return array|mixed
+	 */
+	public static function getParams($key = '', $defaultValue = '')
+	{
+		if (empty($key)) {
+			return Yii::$app->request->get();
+		}
+
+		return Yii::$app->request->get($key, $defaultValue);
+	}
+
+	/**
+	 * @Desc: 获取post参数
+	 * @param string $key
+	 * @param string $defaultValue
+	 * @return array|mixed
+	 */
+	public static function postParams($key = '', $defaultValue = '')
+	{
+		if (empty($key)) {
+			return Yii::$app->request->post();
+		}
+
+		return Yii::$app->request->post($key, $defaultValue);
 	}
 }

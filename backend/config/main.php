@@ -7,36 +7,39 @@ $params = array_merge(
 );
 
 return [
-	'defaultRoute' => 'site/index',
     'id' => 'app-backend',
     'basePath' => dirname(__DIR__),
-    'controllerNamespace' => 'backend\controllers',
     'bootstrap' => ['log'],
-    'modules' => [],
+    'controllerNamespace' => 'backend\controllers',
+    'modules' => [
+        'v1' => [
+            'class' => 'backend\modules\v1\Module',
+        ],
+    ],
     'components' => [
 		'assetManager' => [
 			'basePath' => '@webroot/assets',
-			'baseUrl' => '@web/assets',
+			'baseUrl' => '@web/backend/assets',
 		],
         'request' => [
-            'csrfParam' => '_csrf_token_backend_xstnet',
+            'csrfParam' => '_csrf-avwd',
         ],
         'user' => [
-            'identityClass' => 'common\models\AdminUser',
+            'identityClass' => 'common\models\User',
             'enableAutoLogin' => true,
-			'loginUrl' => 'login/index',
             'identityCookie' => ['name' => '_identity-backend', 'httpOnly' => true],
         ],
         'session' => [
             // this is the name of the session cookie used for login on the backend
-            'name' => 'advanced-backend',
+            'name' => 'backend-avwd',
         ],
 		'log' => [
+			// 假如 YII_DEBUG 开启则是3，否则是0。 这意味着，假如 YII_DEBUG 开启，每个日志消息在日志消息被记录的时候， 将被追加最多3个调用堆栈层级；假如 YII_DEBUG 关闭， 那么将没有调用堆栈信息被包含。
 			'traceLevel' => YII_DEBUG ? 3 : 0,
 			'targets' => [
 				[
 					'class' => 'yii\log\FileTarget',
-					'levels' => ['error', 'warning', ],
+					'levels' => ['error', 'warning',],
 					'logVars' => ['_GET', '_POST', ],
 					'enableRotation' => true, //开启日志文件分段写入，默认每个文件大小为10M
 					'maxFileSize' => 10240, // KB
@@ -45,41 +48,19 @@ return [
 				],
 			],
 		],
-		'errorHandler' => [
-			'errorAction' => 'error/error',
+        'errorHandler' => [
+            'errorAction' => 'site/error',
+        ],
+		'urlManager'=>[
+			'enablePrettyUrl' => true,
+			'showScriptName' => false,
+			'suffix'=>'.html',
+			'rules' => [
+				"/" => "/site/index",
+				"/gii" => "/index.php?r=gii",
+			],
 		],
 
-/*        'urlManager' => [
-			'enablePrettyUrl' => true, //启用 url 美化
-			'enableStrictParsing' => true,
-//			'suffix'=>'.html', //后缀
-			'showScriptName' => false, //隐藏index.php
-//			'rules' => require(__DIR__. '/url.php'), // 自定义URL路由规则
-			//'cache' => 'fileCache', // 使用文件缓存
-        ],*/
-		'response' => [
-			'class' => 'yii\web\Response',
-			'on beforeSend' => function ($event) {
-				// 返回的错误信息只显示code和message
-				$response = $event->sender;
-				// 业务逻辑错误
-				if (isset($response->data['code']) && $response->data['code'] !== 0) {
-					$response->data = [
-						'code' => $response->data['code'],
-						'message' => $response->data['message'],
-					];
-				}
-				// HTTP错误
-//				if (isset($response->data['status']) && $response->data['status'] !== 200) {
-//					$response->data = [
-//						'code' => $response->data['status'],
-//						'message' => $response->data['message'],
-//					];
-//				}
-				$response->statusCode = 200; // 错误信息返回码同样200
-			},
-		],
-
-    ],
+	],
     'params' => $params,
 ];

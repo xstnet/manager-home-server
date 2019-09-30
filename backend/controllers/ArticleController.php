@@ -1,353 +1,209 @@
 <?php
 /**
- * 文章管理
+ *
  * Created by PhpStorm.
- * User: Administrator
- * Date: 2018/10/27
- * Time: 13:46
+ * Author: Shantong Xu <shantongxu@qq.com>
+ * Date: 19-7-25
+ * Time: 下午3:37
  */
 
 namespace backend\controllers;
 
 
-use backend\services\article\ArticleService;
-use common\helpers\Helpers;
+use common\exceptions\ParameterException;
 use common\models\Article;
 use common\models\ArticleComment;
-use yii\filters\VerbFilter;
 use Yii;
+use yii\helpers\HtmlPurifier;
+use yii\web\NotFoundHttpException;
 
-class ArticleController extends AdminLogController
+class ArticleController extends BaseController
 {
+	/**
+	 * {@inheritdoc}
+	 */
 	public function behaviors()
 	{
-		return array_merge(
-			parent::behaviors(),
+		return [
+			'PageCache' => [
+				'class' => '\common\helpers\ArticlePageCache',
+				'only' => ['index'],
+				'duration' => 3600,
+				'enabled' => YII_ENV == 'prod',
+				'variations' => [
+					Yii::$app->request->isAjax,
+					Yii::$app->request->get('page', 1),
+					Yii::$app->request->get('id', 0),
+					Yii::$app->request->get('debug', 0),
+				],
+				'dependency' => [
+					'class' => 'yii\caching\DbDependency',
+					'sql' => "SELECT `updated_at` FROM x_article where id = :id",
+					'params' => [
+						':id' => ((int) Yii::$app->request->get('id', 0)),
+					]
+				],
+			],
+		];
+	}
+	/**
+	 * Displays Article Content.
+	 * @param int $id
+	 * @return string
+	 * @throws NotFoundHttpException
+	 * @throws \yii\db\Exception
+	 */
+	public function actionIndex(int $id)
+	{
+		$this->layout = 'article-main';
+		// 获取评论
+		if (Yii::$app->request->isAjax) {
+			$page = Yii::$app->request->get('page', 0);
+			if ($page > 0) {
+				return $this->getComments();
+			}
+		}
+		
+		$article = Article::findOne($id);
+		if (empty($article)) {
+			throw new NotFoundHttpException('该文章不存在');
+		}
+		
+		Yii::$app->db->createCommand()->update(Article::tableName(), ['hits' => $article->hits+1], 'id='.$article->id)->execute();
+		
+		$breadcrumb = $this->getArticleBreadcrumb($article);
+		
+		// 上一条数据
+		$prevArticle = Article::find()
+			->select(['id', 'title'])
+			->where(['>', 'created_at', $article->created_at])
+            ->andWhere(['is_delete' => Article::IS_DELETE_NO, 'is_show' => Article::IS_SHOW_YES])
+            ->limit(1)
+            ->orderBy('created_at desc')
+			->asArray()
+			->one();
+		
+		// 下一条数据
+		$nextArticle = Article::find()
+			->select(['id', 'title'])
+            ->where(['<', 'created_at', $article->created_at])
+            ->andWhere(['is_delete' => Article::IS_DELETE_NO, 'is_show' => Article::IS_SHOW_YES])
+			->limit(1)
+            ->orderBy('created_at desc')
+			->asArray()
+			->one();
+		
+		if (empty($article->content->directory))  {
+			$this->layout = 'main';
+		}
+		
+		return $this->render('index', [
+			'article' => $article,
+			'breadcrumb' => $breadcrumb,
+			'prevArticle' => $prevArticle,
+			'nextArticle' => $nextArticle,
+		]);
+		
+	}
+	
+	/**
+	 * 发布评论
+	 */
+	public function actionRelease()
+	{
+		// 验证留言间隔, 1分钟内只能发一次
+		$session = Yii::$app->session;
+		$session->open();
+		$lastPubAt = $session->get('comment_last_pub_at', 0);
+		
+		if ($lastPubAt > 0 && ($lastPubAt + 60) > time()) {
+			exit("<script>alert('1分钟内只能发布一次哦!');history.go(-1)</script>");
+		}
+		$params = Yii::$app->request->post();
+		$articleId = (int) ($params['article_id'] ?? 0);
+		$article = Article::findOne($articleId);
+		if (empty($article)) {
+			throw new NotFoundHttpException('该文章不存在!');
+		}
+		if ($article->is_allow_comment == Article::IS_DELETE_NO) {
+			exit("<script>alert('该篇文章不支持评论!');history.go(-1)</script>");
+		}
+		
+		$transaction = Yii::$app->db->beginTransaction();
+		try {
+			$comment = new ArticleComment();
+			$comment->article_id = $articleId;
+			$comment->avatar = sprintf('/uploads/avatar/%d.jpg', rand(1, 5));
+			$comment->nickname = HtmlPurifier::process(trim($params['nickname'] ?? ''));
+			$comment->email = HtmlPurifier::process(trim($params['email'] ?? ''));
+			$comment->content = trim($params['content'] ?? '');
+			$comment->ip = Yii::$app->request->userIP;
+			
+			if (!$comment->save()) {
+				$error = current($comment->getFirstErrors());
+				throw new ParameterException(ParameterException::INVALID, $error);
+			}
+			
+			$article->comment_count ++;
+			$article->scenario = 'update-comment_count';
+			if (!$article->save()) {
+				throw new ParameterException(ParameterException::INVALID, '发布失败');
+			}
+			
+			$transaction->commit();
+		} catch (\Exception $e) {
+			$transaction->rollBack();
+			exit("<script>alert('". $e->getMessage() ."');history.go(-1)</script>");
+		}
+		
+		$session->set('comment_last_pub_at', time());
+		
+		exit("<script>alert('发布成功');location.href='/article-".$articleId.".html'</script>");
+	}
+	
+	/**
+	 * 获取文章评论列表
+	 * @return string
+	 */
+	public function getComments()
+	{
+		$this->layout = false;
+		
+		$articleId = (int) Yii::$app->request->get('id', 0);
+		
+		$query = ArticleComment::find()->where(['article_id' => $articleId]);
+		
+		list ($count, $pages) = $this->getPage($query, 30);
+		
+		$commentList = $query->asArray()
+			->all();
+
+		return $this->renderContentFilter($this->render('get-comments', [
+			'commentList' => $commentList,
+			'pages' => $pages,
+		]));
+	}
+	
+	/**
+	 *
+	 * @param Article $article
+	 * @return array
+	 */
+	private function getArticleBreadcrumb($article)
+	{
+		
+		return array_merge([
 			[
-				'verbs' => [
-					'class' => VerbFilter::className(),
-					'actions' => [
-						'index' => ['get'],
-						'category' => ['get'],
-						'add' => ['get'],
-						'edit' => ['get'],
-						'add-article' => ['post'],
-						'get-articles' => ['get'],
-						'save-article' => ['post'],
-						'save-article-brief' => ['post'],
-						'delete-article' => ['post'],
-						'delete-articles' => ['post'],
-						'add-categoy' => ['post'],
-						'save-categoy' => ['post'],
-						'save-categoy' => ['post'],
-						'get-categories' => ['get'],
-						'tags' => ['get'],
-						'get-tags' => ['get'],
-						'change-tag-status' => ['post'],
-						'delete-tags' => ['post'],
-						'add-tags' => ['post'],
-						'comment' => ['get'],
-					],
+				'name' => '首页',
+				'href' => '/',
+			]
+		], $this->getAllCategoryBreadcrumb($article->category_id),
+			[
+				[
+					'name' => $article->title,
+					'href' => "/article-{$article->id}.html",
 				],
 			]
 		);
-	}
-
-	/**
-	 * 打开文章管理页面
-	 */
-	public function actionIndex()
-	{
-		$categories  = ArticleService::instance()->getCategoryList();
-		$treeSelect = Helpers::getTreeSelect($categories);
-		return $this->render('index', [
-			'treeSelect' => $treeSelect,
-			'searchFields' => Article::getSearchFieldByAction('index'),
-		]);
-	}
-
-	/**
-	 * 发布文章 页面
-	 * @return string
-	 */
-	public function actionAdd()
-	{
-		$categories  = ArticleService::instance()->getCategoryList();
-		$treeSelect = Helpers::getTreeSelect($categories);
-		$type = Yii::$app->request->get('type', 'markdown');
-		$view = 'add';
-		if ($type === 'html') {
-			$view = 'add_uedit';
-		}
-		return $this->render($view, [
-			'treeSelect' => $treeSelect,
-		]);
-	}
-	
-	/**
-	 * 编辑文章 页面
-	 * @param $id
-	 * @param string $type
-	 * @return string
-	 * @throws \yii\base\InvalidConfigException
-	 */
-	public function actionEdit($id, $type ='')
-	{
-		$model = Article::findOne($id);
-		if (empty($model)) {
-			self::ajaxReturn('文章不存在');
-		}
-		$categories  = ArticleService::instance()->getCategoryList();
-		$treeSelect = Helpers::getTreeSelect($categories);
-		$view = 'edit_html';
-		if (!empty($model->content->markdown_content)) {
-			$view = 'edit_markdown';
-		}
-		if (!empty($type)) {
-			$view = 'edit_' . $type;
-		}
-		return $this->render($view, [
-			'treeSelect' => $treeSelect,
-			'model' => $model,
-		]);
-	}
-
-	/**
-	 * @Desc: 获取文章列表
-	 * @return array
-	 */
-	public function actionGetArticles()
-	{
-		$result = ArticleService::instance()->getArticeList();
-		return self::ajaxSuccess(self::AJAX_MESSAGE_SUCCESS, $result);
-	}
-
-	/**
-	 * @Desc: 更新文章是否展示
-	 * @return array
-	 */
-	public function actionChangeIsShow()
-	{
-		$id = self::postParams('id', 0);
-		ArticleService::instance()->changeIsShow($id);
-		return self::ajaxSuccess('更新成功');
-	}
-
-	/**
-	 * @Desc: 更新文章是否允许评论
-	 * @return array
-	 */
-	public function actionChangeIsAllowComment()
-	{
-		$id = self::postParams('id', 0);
-		ArticleService::instance()->changeIsAllowComment($id);
-		return self::ajaxSuccess('更新成功');
-	}
-
-	/**
-	 * @Desc: 发布文章
-	 * @return array
-	 */
-	public function actionAddArticle()
-	{
-		$params = self::postParams();
-		ArticleService::instance()->addArtice($params);
-		return self::ajaxSuccess('发布成功');
-	}
-
-	/**
-	 * @Desc: 编辑文章
-	 * @return array
-	 */
-	public function actionSaveArticle()
-	{
-		$params = self::postParams();
-		ArticleService::instance()->saveArtice($params);
-		return self::ajaxSuccess('更新成功');
-	}
-
-	/**
-	 * @Desc: 删除文章
-	 * @return array
-	 */
-	public function actionDeleteArticle()
-	{
-		$articleId = self::postParams('id', 0);
-		ArticleService::instance()->deleteArtice($articleId);
-		return self::ajaxSuccess('删除成功');
-	}
-
-	/**
-	 * @Desc: 删除文章 批量
-	 * @return array
-	 */
-	public function actionDeleteArticles()
-	{
-		$articleIds = self::postParams('ids', 0);
-		ArticleService::instance()->deleteArtices($articleIds);
-		return self::ajaxSuccess('删除成功');
-	}
-
-	/**
-	 * @Desc: 快速编辑 保存
-	 * @return array
-	 */
-	public function actionSaveArticleBrief()
-	{
-		$params = self::postParams();
-		ArticleService::instance()->saveArticeBrief($params);
-		return self::ajaxSuccess('更新成功');
-	}
-
-	
-
-	/**
-	 * @Desc: 获取分类列表 tree
-	 * @return array
-	 */
-	public function actionGetCategories()
-	{
-		$result = ArticleService::instance()->getCategoryList();
-		return self::ajaxSuccess(self::AJAX_MESSAGE_SUCCESS, $result);
-	}
-
-	/**
-	 * @Desc: 分类管理 页面
-	 */
-	public function actionCategory()
-	{
-		$categories  = ArticleService::instance()->getCategoryList();
-		$treeSelect = Helpers::getTreeSelect($categories);
-		return $this->render('category', [
-			'treeSelect' => $treeSelect,
-		]);
-	}
-
-	/**
-	 * @Desc: 添加分类
-	 * @return array
-	 */
-	public function actionAddCategory()
-	{
-		$params = self::postParams();
-		ArticleService::instance()->addCategory($params);
-		return self::ajaxSuccess('添加成功');
-	}
-
-	/**
-	 * @Desc: 更新分类
-	 * @return array
-	 */
-	public function actionSaveCategory()
-	{
-		$params = self::postParams();
-		ArticleService::instance()->saveCategory($params);
-		return self::ajaxSuccess('更新成功');
-	}
-
-	/**
-	 * @Desc: 删除分类
-	 * @return array
-	 */
-	public function actionDeleteCategory()
-	{
-		$categoryId = self::postParams('id', 0);
-		$moveArticle = self::postParams('move_article', 0);
-		$deleteArticle = self::postParams('delete_article', 0);
-		$moveToCategoryId = self::postParams('move_to_category_id', 0);
-		if (($moveArticle + $deleteArticle) !== 1) {
-			self::ajaxReturn('参数错误');
-		}
-		ArticleService::instance()->deleteCategory($categoryId, $moveArticle, $deleteArticle, $moveToCategoryId);
-		return self::ajaxSuccess('删除成功');
-	}
-	
-	/********************************************标签管理****************/
-	
-	/**
-	 * Display tags view
-	 * @return string
-	 */
-	public function actionTags()
-	{
-		return $this->render('tags');
-	}
-	
-	/**
-	 * Ajax Get Tag List
-	 * @return array
-	 * @throws \yii\base\InvalidConfigException
-	 */
-	public function actionGetTags()
-	{
-		$result = ArticleService::instance()->getTagList();
-		return self::ajaxSuccess(self::AJAX_MESSAGE_SUCCESS, $result);
-	}
-	
-	/**
-	 * Ajax Change Tag is show
-	 * @return array
-	 * @throws \common\exceptions\DatabaseException
-	 * @throws \common\exceptions\ParameterException
-	 * @throws \yii\base\InvalidConfigException
-	 */
-	public function actionChangeTagStatus()
-	{
-		$tagId = self::postParams('id', 0);
-		$result = ArticleService::instance()->changeTagIsShow($tagId);
-		return self::ajaxSuccess('更新成功');
-	}
-	
-	/**
-	 * Ajax Delete Tags
-	 * @return array
-	 * @throws \common\exceptions\ParameterException
-	 * @throws \yii\base\InvalidConfigException
-	 */
-	public function actionDeleteTags()
-	{
-		$tagIds = self::postParams('ids', 0);
-		ArticleService::instance()->deleteTags($tagIds);
-		return self::ajaxSuccess('删除成功');
-	}
-	
-	/**
-	 * Add Tag
-	 * @return array
-	 * @throws \common\exceptions\DatabaseException
-	 * @throws \yii\base\InvalidConfigException
-	 */
-	public function actionAddTag()
-	{
-		$params = self::postParams();
-		ArticleService::instance()->addTag($params);
-		return self::ajaxSuccess('添加成功');
-	}
-	
-	public function actionComment()
-	{
-		return $this->render('comment');
-	}
-	
-	public function actionGetComments()
-	{
-		$result = ArticleService::instance()->getCommentList();
-		return self::ajaxSuccess(self::AJAX_MESSAGE_SUCCESS, $result);
-	}
-	
-	public function actionCommentReadAll()
-	{
-		$affectedRows = ArticleComment::updateAll(['is_read' => ArticleComment::IS_READ_YES], ['is_read' => ArticleComment::IS_DELETE_NO]);
-		if ($affectedRows !== false) {
-			return self::ajaxSuccess('操作成功');
-		}
-		return self::ajaxReturn('操作失败');
-	}
-	
-	public function actionDeleteComments()
-	{
-		$ids = self::postParams('ids', 0);
-		ArticleService::instance()->deleteComments($ids);
-		return self::ajaxSuccess('删除成功');
 	}
 }

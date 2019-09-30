@@ -7,34 +7,37 @@ $params = array_merge(
 );
 
 return [
+	'defaultRoute' => 'site/index',
     'id' => 'app-frontend',
     'basePath' => dirname(__DIR__),
-    'bootstrap' => ['log'],
     'controllerNamespace' => 'frontend\controllers',
+    'bootstrap' => ['log'],
+    'modules' => [],
     'components' => [
 		'assetManager' => [
 			'basePath' => '@webroot/assets',
-			'baseUrl' => '@web/frontend/assets',
+			'baseUrl' => '@web/assets',
 		],
         'request' => [
-            'csrfParam' => '_csrf-avwd',
+            'csrfParam' => '_csrf_token_frontend_xstnet',
+            'enableCsrfValidation' => false,
         ],
         'user' => [
             'identityClass' => 'common\models\User',
             'enableAutoLogin' => true,
+			'loginUrl' => 'login/index',
             'identityCookie' => ['name' => '_identity-frontend', 'httpOnly' => true],
         ],
         'session' => [
             // this is the name of the session cookie used for login on the frontend
-            'name' => 'frontend-avwd',
+            'name' => 'advanced-frontend',
         ],
 		'log' => [
-			// 假如 YII_DEBUG 开启则是3，否则是0。 这意味着，假如 YII_DEBUG 开启，每个日志消息在日志消息被记录的时候， 将被追加最多3个调用堆栈层级；假如 YII_DEBUG 关闭， 那么将没有调用堆栈信息被包含。
 			'traceLevel' => YII_DEBUG ? 3 : 0,
 			'targets' => [
 				[
 					'class' => 'yii\log\FileTarget',
-					'levels' => ['error', 'warning',],
+					'levels' => ['error', 'warning', ],
 					'logVars' => ['_GET', '_POST', ],
 					'enableRotation' => true, //开启日志文件分段写入，默认每个文件大小为10M
 					'maxFileSize' => 10240, // KB
@@ -43,46 +46,43 @@ return [
 				],
 			],
 		],
-        'errorHandler' => [
-            'errorAction' => 'site/error',
-        ],
-		'urlManager'=>[
-			'enablePrettyUrl' => true,
-			'showScriptName' => false,
-			'suffix'=>'.html',
-			'rules' => [
-				"/" => "/site/index",
-				"/gii" => "/index.php?r=gii",
-				'article-<id:\d+>' => '/article/index', // 文章详情
-				'article/get-comments' => '/article/index', // 获取文章评论
-				'/search' => '/site/search', // 搜索
-				'/article/search' => '/site/search',  // 搜索， 兼容老版本
-				'/about' => '/site/about',  // 关于我
-				'/category-<categoryId:\d+>' => '/site/category', // 分类
-				'/archive/<year:20\d\d>/<month:(0|1)\d>' => '/archive/list', // 归档文档列表
-				'/archive' => '/archive/index', // 归档
-				'/tag/<tag:.*+>' => '/site/tag', // 标签
-				'/message/release' => '/message/release', // 发布留言
-				// site map
-				[
-					'pattern' => '/sitemap',
-					'route' => '/site-map/index',
-					'suffix' => '.xml',
-				],
-				// rss
-				[
-					'pattern' => '/rss',
-					'route' => '/rss/index',
-					'suffix' => '.xml',
-				],
-				[
-					'pattern' => '/counter',
-					'route' => '/site/counter',
-					'suffix' => '.html',
-				],
-			],
+		'errorHandler' => [
+			'errorAction' => 'error/error',
 		],
 
-	],
+
+        'urlManager'=>[
+            'enablePrettyUrl' => true,
+            'showScriptName' => false,
+            'rules' => [
+                "/" => "/site/index",
+                "/gii" => "/index.php?r=gii",
+                "/login" => "login/login",
+            ],
+        ],
+		'response' => [
+			'class' => 'yii\web\Response',
+			'on beforeSend' => function ($event) {
+				// 返回的错误信息只显示code和message
+				$response = $event->sender;
+				// 业务逻辑错误
+				if (isset($response->data['code']) && $response->data['code'] !== 0) {
+					$response->data = [
+						'code' => $response->data['code'],
+						'message' => $response->data['message'],
+					];
+				}
+				// HTTP错误
+//				if (isset($response->data['status']) && $response->data['status'] !== 200) {
+//					$response->data = [
+//						'code' => $response->data['status'],
+//						'message' => $response->data['message'],
+//					];
+//				}
+				$response->statusCode = 200; // 错误信息返回码同样200
+			},
+		],
+
+    ],
     'params' => $params,
 ];
