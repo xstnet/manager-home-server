@@ -165,7 +165,7 @@ class UploadForm extends \yii\base\Model
             $fileModel->extend = $imageFile->extension;
             $fileModel->saveModel();
 
-            return $filepath;
+            return $saveDomain . $filepath;
         }
         throw new ParameterException(ParameterException::INVALID, '上传失败');
     }
