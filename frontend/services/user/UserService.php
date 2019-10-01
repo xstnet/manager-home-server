@@ -95,6 +95,7 @@ class UserService extends BaseService
             ->alias('uh')
             ->leftJoin(['home' => Home::tableName()], 'home.id = uh.home_id')
             ->where(['user_id' => $userId])
+            ->indexBy('id')
             ->asArray()
             ->all();
 
@@ -112,7 +113,8 @@ class UserService extends BaseService
             'username' => Yii::$app->user->identity->username,
             'nickname' => Yii::$app->user->identity->nickname,
             'mobile' => Yii::$app->user->identity->mobile,
-            'homeList' => $homeList,
+            'homeName' => $homeList[Helpers::getHomeId()]['name'] ?? '',
+            'homeList' => array_values($homeList),
             'familyMember' => $familyMember,
             'colorList' => [
                 '',
