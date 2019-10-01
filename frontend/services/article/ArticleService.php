@@ -77,7 +77,7 @@ class ArticleService extends BaseService implements ArticleServiceInterface
     {
         $transaction = Yii::$app->db->beginTransaction();
         try {
-            $tagList = (array) ($params['tags'] ?? []);
+            $tagList = (array) (explode(',', $params['tags']) ?? []);
             foreach ($tagList as $key => $vo) {
                 $tagList[$key] = (int) $vo;
             }
