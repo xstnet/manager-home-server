@@ -116,7 +116,8 @@ class BaseController extends Controller
 			Yii::error($e->getMessage());
 			Yii::error($e->getTraceAsString());
 			$message = $e->getMessage();
-			throw new BaseException(10001, $message);
+			$code = (int) $e->getCode();
+			throw new BaseException(max(1, $code), $message);
 		}
 	}
 

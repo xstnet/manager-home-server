@@ -142,7 +142,7 @@ class UploadForm extends \yii\base\Model
         // 上传文件
         $baseDir = '/uploads/images/' . date('Y-m') . '/';
 
-        $saveDir = $saveDomain . \Yii::getAlias('@uploads') . '/images/' . date('Y-m') . '/';
+        $saveDir = \Yii::getAlias('@uploads') . '/images/' . date('Y-m') . '/';
 
         if (!is_dir($saveDir)) {
             mkdir($saveDir, 0777, true);
@@ -158,7 +158,7 @@ class UploadForm extends \yii\base\Model
             $fileModel = new UploadFile();
             $fileModel->name = $fileMd5;
             $fileModel->md5 = $fileMd5;
-            $fileModel->path = $filepath;
+            $fileModel->path = $saveDomain . $filepath;
             $fileModel->size = $imageFile->size;
             $mimeType = \yii\helpers\FileHelper::getMimeType($savePath);
             $fileModel->mime_type = $mimeType ? : $imageFile->type;
